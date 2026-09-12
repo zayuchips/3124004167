@@ -1,0 +1,14 @@
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.env
+htmlcov/
+.coverage
+.coverage.*
+profile_stats
+*.prof
+.DS_Store
+
+# 本地笔记（不提交）
+_notes/
