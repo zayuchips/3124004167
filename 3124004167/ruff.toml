@@ -1,0 +1,10 @@
+# Ruff 配置：目标版本必须写清楚，否则它会建议 Python 3.10+ 才有的写法
+# （例如把 bin(x).count("1") 建议成 x.bit_count()，而本项目运行在 Python 3.9）
+target-version = "py39"
+line-length = 100
+exclude = [".venv", "__pycache__", "htmlcov"]
+
+[lint]
+select = ["E", "F", "W", "I", "N", "UP", "B", "C4", "SIM", "FURB"]
+# E501：行太长由 formatter 处理；FURB161：bit_count() 属于 3.10+，本项目不用
+ignore = ["E501", "FURB161"]

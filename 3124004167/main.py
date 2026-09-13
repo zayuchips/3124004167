@@ -114,9 +114,16 @@ def main(argv: list[str] | None=None)-> int:
         return 1
 
     #计算指纹+重复率
+    # 扩展功能：两份文件内容完全相同时复用同一个指纹，省掉第二次分词
+    same_text = bool(orig_text.strip()) and orig_text == copy_text
     try:
         orig_hash = simhash(orig_text)
-        copy_hash = simhash(copy_text)
+        if same_text:
+            copy_hash = orig_hash
+            print("提示：两份文件内容完全相同，已跳过第二次计算", file=sys.stderr)
+        else:
+            copy_hash = simhash(copy_text)
+
     except ValueError:
         #如果有一方，清洗后没有可用词，就按【完全不重复】处理
         #写入0.00

@@ -8,7 +8,15 @@ htmlcov/
 .coverage.*
 profile_stats
 *.prof
+.ruff_cache/
 .DS_Store
+
+# 运行产生的答案文件（不是源码，不提交）
+3124004167/ans.txt
+3124004167/ans_*.txt
 
 # 本地笔记（不提交）
 _notes/
+
+# 编辑器本地配置（想提交也行，删掉这行即可）
+.vscode/
