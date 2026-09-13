@@ -1,123 +1,151 @@
-"""个人项目 #15702：基于 SimHash 的文本相似度计算。
-
-命令行用法：
-    python main.py <原文路径> <待比对文本路径> <答案文件路径>
-
-把这三个参数的相似度（浮点，保留两位小数）写入答案文件。
-算法核心留着你自己写 —— 每个 TODO 都给了实现要点，写完删掉 TODO 即可。
-"""
-
 from __future__ import annotations
 
 import hashlib
+import re
 import sys
+from collections import Counter
 
 import jieba
 
+# 指纹位数：64 位是 SimHash 的常见选择（比值分辨率 1/64 ≈ 0.0156，够用且好算）
 BITS = 64
-# 经验阈值：海明距离 <= 该值判为“相似”。阈值口径要写进随笔，别照抄结论。
+# 相似判定阈值：海明距离 <= 16 认为「相似」。这只是经验值，写进博客时要说明口径
 SIMILAR_THRESHOLD = 16
+# 只保留汉字、英文字母、数字，其它（标点/空白/表情）统一换成空格
+_CLEAN_PATTERN = re.compile(r"[^\u4e00-\u9fa5A-Za-z0-9]+")
+
+#读文件
+def read_text(path:str)->str:
+    try:
+        with open(path,encoding="utf-8")as file:
+            return file.read()
+    except FileNotFoundError:
+        raise FileNotFoundError(f"文件不存在：{path}")from None
 
 
-def read_text(path: str) -> str:
-    """读取 UTF-8 文本。
-
-    TODO: 处理两类异常并转成带中文提示的异常（在 main 里统一捕获）
-      - FileNotFoundError：文件不存在 / 路径写错
-      - UnicodeDecodeError：不是 UTF-8 编码（可提示用户转码）
-    读入后建议 rstrip()，但不要丢掉内部的换行（分词时会用到）。
-    """
-    raise NotImplementedError("read_text 待实现")
-
-
+#用jieba分词把文本变成词列表
 def tokenize(text: str) -> list[str]:
-    """分词：jieba 分词 + 去标点 + 过滤单字。
-
-    TODO:
-      1. words = jieba.lcut(text)
-      2. 去掉纯标点/空白 token（可用 str.isalnum() 或正则 [\\w\\u4e00-\\u9fa5]）
-      3. 过滤长度为 1 的单字（“的/了/是”这类词在所有中文文本里都高频，缺乏区分度）
-    提示：写进随笔时可以说明“为什么过滤单字能提升准确度”。
-    """
-    raise NotImplementedError("tokenize 待实现")
+    cleaned=_CLEAN_PATTERN.sub(" ",text)
+    words=jieba.lcut(cleaned)
+    return [word for word in words if len(word)>1]
 
 
-def word_hash(word: str, bits: int = BITS) -> int:
-    """单词 -> 稳定的 bits 位无符号哈希。
-
-    坑：**不要用内置 hash()**，它对字符串按进程随机加盐（PYTHONHASHSEED），
-    同一文本换个进程跑出来的指纹和相似度都不同，测试会时好时坏。
-
-    TODO: digest = hashlib.md5(word.encode("utf-8")).hexdigest()
-          返回 int(digest, 16) & ((1 << bits) - 1)
-    """
-    raise NotImplementedError("word_hash 待实现")
+#通过md5哈希函数把词变成整数
+def word_hash(word:str,bits:int=BITS)->int:
+    digest=hashlib.md5(word.encode("utf-8")).hexdigest()
+    return int(digest,16)&((1<<bits)-1)
 
 
-def simhash(text: str, bits: int = BITS) -> int:
-    """计算文本的 SimHash 指纹（加权 -> 降维）。
+#生成指纹，数频次，出现频次越高，对指纹影响越大
+def simhash(text: str,bits: int=BITS)->int:
+    words= tokenize(text)
+    if not words:
+        raise ValueError("文本没有有效词，无法计算 SimHash")
 
-    TODO（经典四步）:
-      1. 分词：words = tokenize(text)
-      2. 初始化向量 v = [0] * bits
-      3. 对每个词 w（权重可以用词频 Counter 计数，也可以先按 1 计算）:
-             h = word_hash(w, bits)
-             for i in range(bits):
-                 v[i] += weight if (h >> i) & 1 else -weight
-      4. 指纹：每个维度 v[i] > 0 则该位取 1，否则取 0：
-             fingerprint |= 1 << i
-    边界：文本为空 / 全部被过滤掉时，应该 raise ValueError 由上层提示用户，
-    而不是返回 0（否则空文本之间会得到 100% 相似度的假结果）。
-    """
-    raise NotImplementedError("simhash 待实现")
-
-
-def hamming_distance(h1: int, h2: int) -> int:
-    """两个指纹不同的二进制位数。
-
-    TODO: return bin(h1 ^ h2).count("1")   # 或 (h1 ^ h2).bit_count()（Python 3.10+）
-    """
-    raise NotImplementedError("hamming_distance 待实现")
+    weights=Counter(words)
+    vector=[0] * bits
+    for word,weight in weights.items():
+        word_h =word_hash(word,bits)
+        for i in range(bits):
+            if(word_h>>i)&1:
+                vector[i]+=weight
+            else:
+                vector[i]-=weight
+    fingerprint=0
+    for i in range(bits):
+        if vector[i]>0:
+            fingerprint|=(1<<i)
+    return fingerprint
 
 
-def similarity(dist: int, bits: int = BITS) -> float:
-    """海明距离 -> 相似度，保留两位小数。
-
-    TODO: return round(1 - dist / bits, 2)
-    """
-    raise NotImplementedError("similarity 待实现")
+#海明距离，两指纹有多少位不同
+def hamming_distance(h1:int,h2: int)->int:
+    return bin(h1^h2).count("1")     #数有几位异或得1
 
 
-def parse_args(argv: list[str]) -> tuple[str, str, str]:
-    """解析命令行参数。
+#海明距离->重复率
+"""海明距离转换为重复率
 
-    TODO: argv 为 sys.argv[1:]，正好 3 个（原文、待比对、答案文件）。
-          数量不对 -> 打印用法并 sys.exit(1)。
-    """
-    raise NotImplementedError("parse_args 待实现")
-
-
-def write_result(path: str, value: float) -> None:
-    """写答案文件。
-
-    TODO: 以 utf-8 写入；格式保留两位小数（f"{value:.2f}"）。
-          作业要求“答案文件中输出的答案为浮点型，精确到小数点后两位”。
-    """
-    raise NotImplementedError("write_result 待实现")
+完全相同的文本，海明距离为 0，重复率为 1.0；
+完全不同的文本，海明距离为 BITS，重复率为 0.0
+"""
+def similarity(dist: int,bits: int=BITS)->float:
+    return round(1-dist/bits,2)
 
 
-def main(argv: list[str] | None = None) -> int:
-    """程序入口：解析参数 -> 读文件 -> 算指纹 -> 算距离 -> 写结果。
+#校验命令行参数
+"""
+参数个数不是 3 时：打印用法并 sys.exit(1)（退出码 1 表示出错退出）
+"""
+def parse_args(argv: list[str]) ->tuple[str, str, str]:
+    if len(argv) !=3:
+        print(
+            "用法：python main.py [原文文件] [抄袭版论文的文件] [答案文件]",
+            file =sys.stderr
+        )
+        sys.exit(1)
+    return argv[0],argv[1],argv[2]
 
-    TODO:
-      1. 解析参数；读两个文件
-      2. 算两个 SimHash，求海明距离与相似度
-      3. 写答案文件
-      4. 捕获上面各步骤抛出的异常，打印中文提示，返回 1（不要抛 Traceback）
-      5. 终端打印一份人类可读的结果（指纹、距离、相似度、是否判为相似）
-    """
-    raise NotImplementedError("main 待实现")
 
+#写答案
+def write_result(path: str,value: float)-> None:
+    with open(path,"w",encoding="utf-8")as file:
+        file.write(f"{value:.2f}")
+
+
+#
+def main(argv: list[str] | None=None)-> int:
+    #允许测试直接穿参数列表
+    args =sys.argv[1:] if argv is None else list(argv)
+
+    #参数椒盐
+    orig_path, copy_path, ans_path = parse_args(args)
+
+    #读文件
+    try:
+        orig_text = read_text(orig_path)
+        copy_text = read_text(copy_path)
+    except FileNotFoundError as err:
+        print(f"错误：{err}", file=sys.stderr)
+        return 1
+    except UnicodeDecodeError:
+
+        print("错误：文件不是 UTF-8 编码,请先另存为 UTF-8 再试", file=sys.stderr)
+        return 1
+
+    #计算指纹+重复率
+    try:
+        orig_hash = simhash(orig_text)
+        copy_hash = simhash(copy_text)
+    except ValueError:
+        #如果有一方，清洗后没有可用词，就按【完全不重复】处理
+        #写入0.00
+        print("提示：有一方文本没有有效词，按完全不重复处理", file=sys.stderr)
+        rate= 0.0
+        orig_hash =copy_hash =None
+        distance =BITS #按完全不同处理
+    else:
+        distance = hamming_distance(orig_hash, copy_hash)
+        rate = similarity(distance)
+
+    #写入答案文件
+    try:
+        write_result(ans_path, rate)
+    except OSError as err:
+        print(f"错误：写入答案文件失败：{err}", file=sys.stderr)
+        return 1
+
+    #在终端输出可读的结果
+    if orig_hash is not None:
+        print(f"原文指纹:{orig_hash:#018x}")
+        print(f"待比对指纹:{copy_hash:#018x}")
+    print(f"海明距离:{distance}(共{BITS}位)")
+    print(f"重复率:{rate:.2f}")
+    verdict = "相似" if distance <= SIMILAR_THRESHOLD else "不相似"
+    print(f"判定:{verdict}(阈值:海明距离≤{SIMILAR_THRESHOLD})")
+    print(f"已写入答案文件:{ans_path}")
+    return 0
 
 if __name__ == "__main__":
     sys.exit(main())
+    #只有【直接运行】才会执行 main()，import 时不会执行

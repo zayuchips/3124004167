@@ -11,10 +11,11 @@ import unittest
 
 from main import (
     hamming_distance,
+    main,
     parse_args,
     read_text,
-    similarity,
     simhash,
+    similarity,
     tokenize,
     write_result,
 )
@@ -124,6 +125,76 @@ class TestOutput(unittest.TestCase):
             write_result(path, 0.8421)
             with open(path, encoding="utf-8") as f:
                 self.assertEqual(f.read().strip(), "0.84")
+
+
+class TestEndToEnd(unittest.TestCase):
+    """端到端：直接调用 main()，验证命令行行为与答案文件内容。"""
+
+    @staticmethod
+    def _write(directory: str, name: str, text: str, encoding: str = "utf-8") -> str:
+        path = os.path.join(directory, name)
+        with open(path, "w", encoding=encoding) as f:
+            f.write(text)
+        return path
+
+    def test_main_identical_files_full_rate(self):
+        """完全相同的两个文件 → 答案文件是 1.00。"""
+        with tempfile.TemporaryDirectory() as d:
+            orig = self._write(d, "orig.txt", TEXT_A)
+            copy = self._write(d, "copy.txt", TEXT_A)
+            ans = os.path.join(d, "ans.txt")
+            self.assertEqual(main([orig, copy, ans]), 0)
+            with open(ans, encoding="utf-8") as f:
+                self.assertEqual(f.read().strip(), "1.00")
+
+    def test_main_partial_copy_writes_two_decimals(self):
+        """改写过的抄袭版 → 答案是形如 0.84 的两位小数，且退出码 0。"""
+        with tempfile.TemporaryDirectory() as d:
+            orig = self._write(d, "orig.txt", TEXT_A)
+            copy = self._write(d, "copy.txt", TEXT_A_PARA)
+            ans = os.path.join(d, "ans.txt")
+            self.assertEqual(main([orig, copy, ans]), 0)
+            with open(ans, encoding="utf-8") as f:
+                self.assertRegex(f.read().strip(), r"^\d\.\d{2}$")
+
+    def test_main_empty_copy_writes_zero_and_exits_normally(self):
+        """0 字节抄袭版：答案写 0.00 且不异常退出（评测红线，样例里有 none.txt）。"""
+        with tempfile.TemporaryDirectory() as d:
+            orig = self._write(d, "orig.txt", TEXT_A)
+            copy = self._write(d, "empty.txt", "")
+            ans = os.path.join(d, "ans.txt")
+            self.assertEqual(main([orig, copy, ans]), 0)
+            with open(ans, encoding="utf-8") as f:
+                self.assertEqual(f.read().strip(), "0.00")
+
+    def test_main_missing_file_returns_one(self):
+        """输入文件不存在 → 返回 1，不抛未捕获异常。"""
+        with tempfile.TemporaryDirectory() as d:
+            code = main(
+                [
+                    os.path.join(d, "no_such_orig.txt"),
+                    os.path.join(d, "no_such_copy.txt"),
+                    os.path.join(d, "ans.txt"),
+                ]
+            )
+            self.assertEqual(code, 1)
+
+    def test_main_wrong_arg_count_exits_with_one(self):
+        """参数个数不对 → SystemExit，退出码 1。"""
+        with self.assertRaises(SystemExit) as ctx:
+            main(["only_one_arg.txt"])
+        self.assertEqual(ctx.exception.code, 1)
+
+    def test_main_empty_orig_writes_zero_and_exits_normally(self):
+        """原文是 0 字节文件：同样写 0.00 且不异常退出。"""
+        with tempfile.TemporaryDirectory() as d:
+            orig = self._write(d, "empty_orig.txt", "")
+            copy = self._write(d, "copy.txt", TEXT_A)
+            ans = os.path.join(d, "ans.txt")
+            self.assertEqual(main([orig, copy, ans]), 0)
+            with open(ans, encoding="utf-8") as f:
+                self.assertEqual(f.read().strip(), "0.00")
+
 
 
 if __name__ == "__main__":
